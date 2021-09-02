@@ -8,3 +8,5 @@ edition = "2018"
 [dependencies]
 const_format = "0.2.19"
 uuid = { version = "0.8.2", features = ["v4"] }
+serde = { version = "1.0.130", features = ["derive"] }
+serde_yaml = "0.8.20"

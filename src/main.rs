@@ -1,4 +1,7 @@
 use const_format::concatcp;
+use serde::de::Visitor;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::str::FromStr;
 use std::{
     fs::File,
     io::{stdin, BufRead, BufReader},
@@ -19,12 +22,6 @@ const NAME: &str = "chronic";
 fn main() {
     if !installed() {
         setup();
-    }
-    if habitctl_installed() {
-        println!("habitctl is installed.");
-        parse_habitctl_data();
-    } else {
-        println!("habitctl isn't installed.");
     }
 }
 
@@ -48,7 +45,8 @@ fn setup() {
             println!("Invalid response.");
         };
         if import {
-            parse_habitctl_data();
+            let habits = parse_habitctl_data();
+            println!("{}", serde_yaml::to_string(&habits).unwrap());
         }
     }
 }
@@ -61,25 +59,59 @@ fn habitctl_installed() -> bool {
     Path::new(HABITCTL_HABITS).is_file() && Path::new(HABITCTL_LOG).is_file()
 }
 
-fn parse_habitctl_data() {
+fn parse_habitctl_data() -> Vec<Habit> {
     let habits = File::open(HABITCTL_HABITS).unwrap();
     let habits_reader = BufReader::new(habits);
-
+    let mut habit_list = Vec::<Habit>::new();
     for line in habits_reader.lines().flatten() {
         let habit = Habit::from_habitctl_line(&line);
         if habit.is_none() {
             continue;
         }
         let habit = habit.unwrap();
-        println!("{:?}", habit)
+        habit_list.push(habit);
     }
+    habit_list
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Habit {
+    #[serde(serialize_with = "serialize_uuid")]
+    #[serde(deserialize_with = "deserialize_uuid")]
+    uuid: Uuid,
     r#type: HabitType,
     description: String,
-    uuid: Uuid,
+}
+
+fn serialize_uuid<S>(uuid: &Uuid, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.collect_str(&format_args!("{:?}", uuid))
+}
+
+fn deserialize_uuid<'de, D>(deserializer: D) -> Result<Uuid, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct UuidVisitor;
+
+    impl<'de> Visitor<'de> for UuidVisitor {
+        type Value = Uuid;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a string containing a UUID")
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(Uuid::from_str(value).unwrap())
+        }
+    }
+
+    deserializer.deserialize_any(UuidVisitor)
 }
 
 impl Habit {
@@ -108,10 +140,15 @@ impl Habit {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 enum HabitType {
+    #[serde(rename = "just_track")]
     JustTrack,
+
+    #[serde(rename = "daily")]
     Daily,
+
+    #[serde(rename = "weekly")]
     Weekly,
 }
 
