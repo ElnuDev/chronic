@@ -3,7 +3,7 @@ use const_format::concatcp;
 use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
 use std::str::FromStr;
 use std::{
-    fs::File,
+    fs::{self, File},
     io::{stdin, BufRead, BufReader},
     path::Path,
 };
@@ -20,9 +20,9 @@ const LOG: &str = concatcp!(DIR, "/log");
 const NAME: &str = "chronic";
 
 fn main() {
-    if !installed() {
-        setup();
-    }
+    // if !installed() {
+    setup();
+    // }
 }
 
 fn setup() {
@@ -44,12 +44,17 @@ fn setup() {
             }
             println!("Invalid response.");
         };
+        fs::create_dir_all(DIR).unwrap();
         if import {
             let habits = parse_habitctl_habits();
-            println!("{}", serde_yaml::to_string(&habits).unwrap());
+            let serialized_habits = serde_yaml::to_string(&habits).unwrap();
+            fs::write(HABITS, serialized_habits).unwrap();
+
             let entries = parse_habitctl_log(&habits);
-            println!("{}", serde_yaml::to_string(&entries).unwrap())
+            let serialized_entries = serde_yaml::to_string(&entries).unwrap();
+            fs::write(LOG, serialized_entries).unwrap();
         }
+        println!("Done!");
     }
 }
 
