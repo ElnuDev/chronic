@@ -1,3 +1,4 @@
+use chrono::{DateTime, NaiveDate, Utc};
 use const_format::concatcp;
 use serde::de::Visitor;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -45,8 +46,10 @@ fn setup() {
             println!("Invalid response.");
         };
         if import {
-            let habits = parse_habitctl_data();
+            let habits = parse_habitctl_habits();
             println!("{}", serde_yaml::to_string(&habits).unwrap());
+            let entries = parse_habitctl_log(&habits);
+            println!("{}", serde_yaml::to_string(&entries).unwrap())
         }
     }
 }
@@ -59,7 +62,7 @@ fn habitctl_installed() -> bool {
     Path::new(HABITCTL_HABITS).is_file() && Path::new(HABITCTL_LOG).is_file()
 }
 
-fn parse_habitctl_data() -> Vec<Habit> {
+fn parse_habitctl_habits() -> Vec<Habit> {
     let habits = File::open(HABITCTL_HABITS).unwrap();
     let habits_reader = BufReader::new(habits);
     let mut habit_list = Vec::<Habit>::new();
@@ -72,6 +75,21 @@ fn parse_habitctl_data() -> Vec<Habit> {
         habit_list.push(habit);
     }
     habit_list
+}
+
+fn parse_habitctl_log(habits: &Vec<Habit>) -> Vec<Entry> {
+    let log = File::open(HABITCTL_LOG).unwrap();
+    let log_reader = BufReader::new(log);
+    let mut entry_list = Vec::<Entry>::new();
+    for line in log_reader.lines().flatten() {
+        let entry = Entry::from_habitctl_line(&line, habits);
+        if entry.is_none() {
+            continue;
+        }
+        let entry = entry.unwrap();
+        entry_list.push(entry);
+    }
+    entry_list
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -158,6 +176,107 @@ impl HabitType {
             '0' => Some(Self::JustTrack),
             '1' => Some(Self::Daily),
             '7' => Some(Self::Weekly),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Entry {
+    #[serde(serialize_with = "serialize_naive_date")]
+    #[serde(deserialize_with = "deserialize_naive_date")]
+    date: NaiveDate,
+    #[serde(serialize_with = "serialize_uuid")]
+    #[serde(deserialize_with = "deserialize_uuid")]
+    habit: Uuid,
+    entry_status: EntryStatus,
+}
+
+impl Entry {
+    fn new(date: NaiveDate, habit: Uuid, entry_status: EntryStatus) -> Self {
+        Self {
+            date,
+            habit,
+            entry_status,
+        }
+    }
+    fn now(habit: Uuid, entry_status: EntryStatus) -> Self {
+        Self::new(Utc::now().naive_utc().date(), habit, entry_status)
+    }
+    fn from_habitctl_line(line: &str, habits: &Vec<Habit>) -> Option<Self> {
+        let line = line.trim();
+        if line.is_empty() {
+            return None;
+        }
+        const DATE_LENGTH: usize = 10;
+        let date = NaiveDate::from_str(&line[..DATE_LENGTH]).unwrap();
+        let habit = {
+            let mut i = 0;
+            let mut matching_habit = None;
+            while i < habits.len() {
+                let habit = habits.get(i).unwrap();
+                if habit.description == line[DATE_LENGTH + 1..line.len() - 2] {
+                    matching_habit = Some(habit.uuid);
+                    break;
+                }
+                i += 1;
+            }
+            matching_habit
+        }?;
+        let entry_status = EntryStatus::from_habitctl_char(line.chars().last().unwrap())?;
+        Some(Self::new(date, habit, entry_status))
+    }
+}
+
+fn serialize_naive_date<S>(naive_date: &NaiveDate, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.collect_str(&format_args!("{:?}", naive_date))
+}
+
+fn deserialize_naive_date<'de, D>(deserializer: D) -> Result<NaiveDate, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct NaiveDateVisitor;
+
+    impl<'de> Visitor<'de> for NaiveDateVisitor {
+        type Value = NaiveDate;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a string containing a date")
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(NaiveDate::from_str(value).unwrap())
+        }
+    }
+
+    deserializer.deserialize_any(NaiveDateVisitor)
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+enum EntryStatus {
+    #[serde(rename = "completed")]
+    Completed,
+
+    #[serde(rename = "not_completed")]
+    NotCompleted,
+
+    #[serde(rename = "skipped")]
+    Skipped,
+}
+
+impl EntryStatus {
+    fn from_habitctl_char(char: char) -> Option<Self> {
+        match char {
+            'y' => Some(Self::Completed),
+            'n' => Some(Self::NotCompleted),
+            's' => Some(Self::Skipped),
             _ => None,
         }
     }

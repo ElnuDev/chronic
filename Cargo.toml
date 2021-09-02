@@ -10,3 +10,5 @@ const_format = "0.2.19"
 uuid = { version = "0.8.2", features = ["v4"] }
 serde = { version = "1.0.130", features = ["derive"] }
 serde_yaml = "0.8.20"
+chrono = "0.4.19"
+chrono-tz = "0.5.3"
