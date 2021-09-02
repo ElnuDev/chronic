@@ -4,6 +4,7 @@ use std::{
     io::{BufRead, BufReader},
     path::Path,
 };
+use uuid::Uuid;
 
 const HABITCTL_DIR: &str = "/home/elnu/.habitctl";
 const HABITCTL_HABITS: &str = concatcp!(HABITCTL_DIR, "/habits");
@@ -40,9 +41,18 @@ fn parse_habitctl_data() {
 struct Habit {
     r#type: HabitType,
     description: String,
+    uuid: Uuid,
 }
 
 impl Habit {
+    fn new(r#type: HabitType, description: String) -> Self {
+        Self {
+            r#type,
+            description,
+            uuid: Uuid::new_v4(),
+        }
+    }
+
     fn from_habitctl_line(line: &str) -> Option<Self> {
         let line = line.trim();
         // Immediately exit out if the line is empty after trimming,
@@ -56,10 +66,7 @@ impl Habit {
         let habit_type = habit_type?;
         // Remove the first character that habitctl uses for type distinction.
         let description = line[1..].trim().to_string();
-        Some(Habit {
-            r#type: habit_type,
-            description,
-        })
+        Some(Self::new(habit_type, description))
     }
 }
 
