@@ -1,6 +1,9 @@
 use const_format::concatcp;
-use std::io::BufRead;
-use std::{fs::File, io::BufReader, path::Path};
+use std::{
+    fs::File,
+    io::{BufRead, BufReader},
+    path::Path,
+};
 
 const HABITCTL_DIR: &str = "/home/elnu/.habitctl";
 const HABITCTL_HABITS: &str = concatcp!(HABITCTL_DIR, "/habits");
