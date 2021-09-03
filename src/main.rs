@@ -1,6 +1,7 @@
 use chrono::{NaiveDate, Utc};
 use const_format::concatcp;
 use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::{
     fs::{self, File},
@@ -15,7 +16,7 @@ const HABITCTL_LOG: &str = concatcp!(HABITCTL_DIR, "/log");
 
 const DIR: &str = "/home/elnu/.chronic";
 const HABITS: &str = concatcp!(DIR, "/habits");
-const LOG: &str = concatcp!(DIR, "/log");
+const LOG_DIR: &str = concatcp!(DIR, "/logs");
 
 const NAME: &str = "chronic";
 
@@ -44,22 +45,39 @@ fn setup() {
             }
             println!("Invalid response.");
         };
-        fs::create_dir_all(DIR).unwrap();
+        fs::create_dir_all(LOG_DIR).unwrap();
         if import {
             let habits = parse_habitctl_habits();
             let serialized_habits = serde_yaml::to_string(&habits).unwrap();
             fs::write(HABITS, serialized_habits).unwrap();
 
             let entries = parse_habitctl_log(&habits);
-            let serialized_entries = serde_yaml::to_string(&entries).unwrap();
-            fs::write(LOG, serialized_entries).unwrap();
+            let sorted_entries = sort_entries_by_date(&entries);
+
+            for (date, entries) in sorted_entries.iter() {
+                let serialized_entries = serde_yaml::to_string(&entries).unwrap();
+                fs::write(format!("{}/{}", LOG_DIR, date), serialized_entries).unwrap();
+            }
         }
         println!("Done!");
     }
 }
 
+fn sort_entries_by_date(entries: &[Entry]) -> HashMap<NaiveDate, Vec<&Entry>> {
+    let mut sorted_entries = HashMap::new();
+
+    for entry in entries.iter() {
+        sorted_entries
+            .entry(entry.date)
+            .or_insert_with(Vec::new)
+            .push(entry);
+    }
+
+    sorted_entries
+}
+
 fn installed() -> bool {
-    Path::new(HABITS).is_file() && Path::new(LOG).is_file()
+    Path::new(HABITS).is_file() && Path::new(LOG_DIR).is_dir()
 }
 
 fn habitctl_installed() -> bool {
