@@ -1,12 +1,12 @@
 use chrono::{NaiveDate, Utc};
 use const_format::concatcp;
 use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
-use std::collections::HashMap;
-use std::str::FromStr;
 use std::{
+    collections::HashMap,
     fs::{self, File},
     io::{stdin, BufRead, BufReader},
     path::Path,
+    str::FromStr,
 };
 use uuid::Uuid;
 
