@@ -3,8 +3,9 @@ use const_format::concatcp;
 use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     collections::HashMap,
+    env,
     fs::{self, File},
-    io::{stdin, BufRead, BufReader},
+    io::{stdin, BufRead, BufReader, Read},
     path::Path,
     str::FromStr,
 };
@@ -21,9 +22,20 @@ const LOG_DIR: &str = concatcp!(DIR, "/logs");
 const NAME: &str = "chronic";
 
 fn main() {
-    // if !installed() {
-    setup();
-    // }
+    let args: Vec<String> = env::args().collect();
+    if !installed() {
+        setup();
+    } else if args.len() > 1 {
+        if args.get(1).unwrap() == "log" && args.len() > 2 {
+            let habits = get_habits();
+            let entries = get_entries(args.get(2).unwrap());
+            for entry in entries.iter() {
+                println!("{}", entry.habit.description);
+            }
+        } else {
+            // Just here to prevent the collapsible_if clippy warning
+        }
+    }
 }
 
 fn setup() {
@@ -63,7 +75,7 @@ fn setup() {
     }
 }
 
-fn sort_entries_by_date(entries: &[Entry]) -> HashMap<NaiveDate, Vec<&Entry>> {
+fn sort_entries_by_date<'a>(entries: &'a [Entry<'a>]) -> HashMap<NaiveDate, Vec<&'a Entry<'a>>> {
     let mut sorted_entries = HashMap::new();
 
     for entry in entries.iter() {
@@ -82,6 +94,21 @@ fn installed() -> bool {
 
 fn habitctl_installed() -> bool {
     Path::new(HABITCTL_HABITS).is_file() && Path::new(HABITCTL_LOG).is_file()
+}
+
+fn get_habits() -> Vec<Habit> {
+    let mut habits = File::open(HABITS).unwrap();
+    let mut habits_contents = String::new();
+    habits.read_to_string(&mut habits_contents).unwrap();
+    serde_yaml::from_str(&habits_contents).unwrap()
+}
+
+fn get_entries(date: &str) -> Vec<Entry> {
+    // TODO: Switch to Option<Vec<Entry>> to accommodate for invalid dates
+    let mut log = File::open(format!("{}/{}", LOG_DIR, date)).unwrap();
+    let mut log_contents = String::new();
+    log.read_to_string(&mut log_contents).unwrap();
+    serde_yaml::from_str(&log_contents).unwrap()
 }
 
 fn parse_habitctl_habits() -> Vec<Habit> {
@@ -115,7 +142,7 @@ fn parse_habitctl_log(habits: &Vec<Habit>) -> Vec<Entry> {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct Habit {
+struct Habit<'a> {
     #[serde(serialize_with = "serialize_uuid")]
     #[serde(deserialize_with = "deserialize_uuid")]
     uuid: Uuid,
@@ -178,6 +205,20 @@ impl Habit {
         let description = line[1..].trim().to_string();
         Some(Self::new(habit_type, description))
     }
+
+    fn from_uuid(habits: &[Habit], uuid: Uuid) -> Option<&Self> {
+        let mut i = 0;
+        let mut matching_habit = None;
+        while i < habits.len() {
+            let habit = habits.get(i).unwrap();
+            if habit.uuid == uuid {
+                matching_habit = Some(habit);
+                break;
+            }
+            i += 1;
+        }
+        matching_habit
+    }
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -204,25 +245,25 @@ impl HabitType {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct Entry {
+struct Entry<'a> {
     #[serde(serialize_with = "serialize_naive_date")]
     #[serde(deserialize_with = "deserialize_naive_date")]
     date: NaiveDate,
     #[serde(serialize_with = "serialize_uuid")]
     #[serde(deserialize_with = "deserialize_uuid")]
-    habit: Uuid,
+    habit: &'a Habit<'a>,
     entry_status: EntryStatus,
 }
 
-impl Entry {
-    fn new(date: NaiveDate, habit: Uuid, entry_status: EntryStatus) -> Self {
+impl Entry<'_> {
+    fn new(date: NaiveDate, habit: &'_ Habit<'_>, entry_status: EntryStatus) -> Self {
         Self {
             date,
             habit,
             entry_status,
         }
     }
-    fn now(habit: Uuid, entry_status: EntryStatus) -> Self {
+    fn now(habit: &Habit, entry_status: EntryStatus) -> Self {
         Self::new(Utc::now().naive_utc().date(), habit, entry_status)
     }
     fn from_habitctl_line(line: &str, habits: &Vec<Habit>) -> Option<Self> {
